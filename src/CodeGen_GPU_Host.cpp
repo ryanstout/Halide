@@ -225,7 +225,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::compile_func(const LoweredFunc &f,
         Value *did_succeed = builder->CreateICmpEQ(result, ConstantInt::get(i32_t, 0));
         CodeGen_CPU::create_assertion(did_succeed, Expr(), result);
 
-        // Generate a finalizer call as well to relase any refcounts or other resource usage
+        // Generate a finalizer call as well to release any refcounts or other resource usage
         // specific to this filter call.
         std::string finalize_kernels_name = "halide_" + api_unique_name + "_finalize_kernels";
         llvm::Function *finalize = module->getFunction(finalize_kernels_name);
