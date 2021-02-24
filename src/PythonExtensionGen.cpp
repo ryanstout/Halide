@@ -167,7 +167,7 @@ int _convert_py_buffer_to_halide(
         halide_dimension_t* dim,  // array of size `dimensions`
         halide_buffer_t* out, Py_buffer &buf, const char* name) {
     int ret = PyObject_GetBuffer(
-      pyobj, &buf, PyBUF_FORMAT | PyBUF_STRIDED_RO | PyBUF_ANY_CONTIGUOUS | flags);
+      pyobj, &buf, PyBUF_FORMAT | PyBUF_STRIDED_RO | flags);
     if (ret < 0) {
       return ret;
     }
@@ -177,29 +177,24 @@ int _convert_py_buffer_to_halide(
       PyBuffer_Release(&buf);
       return -1;
     }
-    /* We'll get a buffer that's either:
-     * C_CONTIGUOUS (last dimension varies the fastest, i.e., has stride=1) or
-     * F_CONTIGUOUS (first dimension varies the fastest, i.e., has stride=1).
-     * The latter is preferred, since it's already in the format that Halide
-     * needs. It can can be achieved in numpy by passing order='F' during array
-     * creation. However, if we do get a C_CONTIGUOUS buffer, flip the dimensions
-     * (transpose) so we can process it without having to reallocate.
-     */
-    int i, j, j_step;
-    if (PyBuffer_IsContiguous(&buf, 'F')) {
-      j = 0;
-      j_step = 1;
-    } else if (PyBuffer_IsContiguous(&buf, 'C')) {
-      j = buf.ndim - 1;
-      j_step = -1;
-    } else {
-      /* Python checks all dimensions and strides, so this typically indicates
-       * a bug in the array's buffer protocol. */
-      PyErr_Format(PyExc_ValueError, "Invalid buffer: neither C nor Fortran contiguous");
-      PyBuffer_Release(&buf);
-      return -1;
-    }
-    for (i = 0; i < buf.ndim; ++i, j += j_step) {
+
+    int i, j;
+    for (i = 0; i < buf.ndim; ++i) {
+        // Because dimensions 0 and 1 are swapped in Halide (as opposed to numpy), we
+        // index the strides/extents backwards in 0 and 1.
+        if (buf.strides[0] == buf.itemsize) {
+            // Fortran style
+            j = i;
+        } else {
+            // C style
+            if (i == 0) {
+                j = 1;
+            } else if (i == 1) {
+                j = 0;
+            } else {
+                j = i;
+            }
+        }
         dim[i].min = 0;
         dim[i].stride = (int)(buf.strides[j] / buf.itemsize); // strides is in bytes
         dim[i].extent = (int)buf.shape[j];
@@ -212,7 +207,15 @@ int _convert_py_buffer_to_halide(
             return -1;
         }
     }
-    if (dim[buf.ndim - 1].extent * dim[buf.ndim - 1].stride * buf.itemsize != buf.len) {
+    int last_dim;
+    if (buf.strides[0] == buf.itemsize) {
+        // Fortran style
+        last_dim = buf.ndim - 1;
+    } else {
+        // C style
+        last_dim = 1;
+    }
+    if (dim[last_dim].extent * dim[last_dim].stride * buf.itemsize != buf.len) {
         PyErr_Format(PyExc_ValueError, "Invalid buffer: length %ld, but computed length %ld",
                      buf.len, buf.shape[0] * buf.strides[0]);
         PyBuffer_Release(&buf);
